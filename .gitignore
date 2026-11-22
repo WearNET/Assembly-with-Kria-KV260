@@ -3,3 +3,7 @@ __pycache__/
 .ipynb_checkpoints/
 photo.pgm
 *.yuv
+*.jou
+*.log
+*.xsa
+vitis-workspace/
