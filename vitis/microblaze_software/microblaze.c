@@ -1,16 +1,31 @@
 #include "xparameters.h"
 #include "xgpio.h"
+#include <stdint.h>
 
 #define GPIO_DEVICE_ID XPAR_XGPIO_0_BASEADDR
 #define CHANNEL1 1
 #define CHANNEL2 2
+#define IMAGE_WIDTH 1920
+#define IMAGE_HEIGHT 1080
+#define OUTPUT_WIDTH (IMAGE_WIDTH - 2)
+#define OUTPUT_HEIGHT (IMAGE_HEIGHT - 2)
 
-extern void BruteForce(void);
-extern void Flattened_Loops(void);
-extern void Serial_Traversal(void);
-extern void Strengh_Reduction(void);
 
 XGpio Gpio;
+
+static int pixels[] = {
+    #include "img_pixels.inc"
+};
+
+_Static_assert(sizeof pixels == IMAGE_WIDTH * IMAGE_HEIGHT, "Expected one grayscale byte per pixel");
+
+static const int8_t edge_kernel[9] = {
+    -1, -1, -1,
+    -1,  8, -1,
+    -1, -1, -1
+};
+
+static int edges[(IMAGE_HEIGHT - 2) * (IMAGE_WIDTH - 2)];
 
 int main() {
     int status;

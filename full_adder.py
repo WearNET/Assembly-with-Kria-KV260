@@ -73,17 +73,3 @@ def print_test(adder: FullAdder, a: int, b: int, cin: int) -> bool:
     status = "PASS" if passed else "FAIL"
     print(f"A={a}  B={b}  Cin={cin}  ->  Sum={sum_bit}  Cout={carry_out}  [{status}]")
     return passed
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--bitstream", default=DEFAULT_BITSTREAM)
-    for flag in ("--a", "--b", "--cin"):
-        parser.add_argument(flag, required=True, type=int, choices=(0, 1))
-    args = parser.parse_args()
-    adder = load_adder(args.bitstream)
-    return 0 if print_test(adder, args.a, args.b, args.cin) else 1
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

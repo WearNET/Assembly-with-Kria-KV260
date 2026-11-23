@@ -30,12 +30,8 @@ try:
 
     comp = client.get_component(name="app_component")
     status = comp.import_files(from_loc=str(source_dir), 
-                            files=["BruteForce.s",
-                                    "Flattened_Loops.s",
-                                    "microblaze.c",
-                                    "Serial-Traversal.s",
-                                    "Strength_Reduction.s"],
-                                    is_skip_copy_sources = False)
+                                files=["microblaze.c",],
+                                is_skip_copy_sources = False)
 except Exception as exc:
     raise SystemExit(
         f"\nComponent creations failed. Verify paths and that the items exists where they should be.\n"

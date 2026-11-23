@@ -27,6 +27,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
+from PIL import Image
 
 import cv2
 import numpy as np
@@ -165,6 +166,16 @@ def capture_gst_launch(video, width, height, n_frames):
 
 # ---------------------------------------------------------------- run
 
+def import_image_bytes(path : str):
+    with Image.open(path) as photo:
+        gray = photo.convert("L")
+        width, height = gray.size
+        pixels = gray.tobytes()
+
+    print(width, height, len(pixels))
+
+    return pixels
+
 def capture_image():
     video, _ = _find("video", lambda n: "vcap" in n)
     print(f"video={video}")
@@ -196,5 +207,14 @@ def capture_image():
         raise RuntimeError(f"Could not write {OUT_FILE}")
     print(f"saved {OUT_FILE}")
     display(Image(filename=OUT_FILE, width=640))
+
+    img_bytes = import_image_bytes(OUT_FILE)
+
+    with open("vitis/microblaze_software/img_pixels.inc", "w") as file:
+        for i in range(0, len(img_bytes), 16):
+            chunk = img_bytes[i:i + 16]
+            file.write(", ".join(f"0x{value:02X}" for value in chunk) + ",\n")
+
+    file.close()
 
     return OUT_FILE
