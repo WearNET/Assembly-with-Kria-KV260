@@ -3,6 +3,7 @@
 
 import argparse
 from pathlib import Path
+import gc
 
 from pynq import Overlay
 
@@ -50,6 +51,9 @@ class FullAdder:
         self.cin.write(cin, 1)
         return int(self.sum.read()) & 1, int(self.cout.read()) & 1
 
+    def free(self):
+        self.overlay.free()
+
 
 def load_adder(bitstream: str | Path) -> FullAdder:
     """Download the selected bitstream once and bind its AXI GPIO channels."""
@@ -73,3 +77,8 @@ def print_test(adder: FullAdder, a: int, b: int, cin: int) -> bool:
     status = "PASS" if passed else "FAIL"
     print(f"A={a}  B={b}  Cin={cin}  ->  Sum={sum_bit}  Cout={carry_out}  [{status}]")
     return passed
+
+def free_resources(adder: FullAdder) -> bool:
+    adder.free()
+    del adder
+    gc.collet()

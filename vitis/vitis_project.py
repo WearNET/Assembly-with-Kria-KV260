@@ -30,7 +30,8 @@ try:
 
     comp = client.get_component(name="app_component")
     status = comp.import_files(from_loc=str(source_dir), 
-                                files=["microblaze.c",],
+                                files=["microblaze.c",
+                                       "img_pixels.inc"],
                                 is_skip_copy_sources = False)
 except Exception as exc:
     raise SystemExit(

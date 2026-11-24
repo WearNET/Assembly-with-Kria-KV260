@@ -35,13 +35,17 @@ from IPython.display import Image, display
 
 OVERLAY_DIR = "/root/jupyter_notebooks/YOLO"
 
+dvt_dir = Path("/sys/kernel/config/device-tree/overlays")
+
+for overlay in dvt_dir.iterdir():
+    if overlay.is_dir() and overlay.name != "pynq":
+        try:
+            overlay.rmdir()
+            print(f"Removed: {overlay.name}")
+        except OSError as error:
+            print(f"Could not remove {overlay.name}: {error}")
+
 os.environ["XLNX_VART_FIRMWARE"] = f"{OVERLAY_DIR}/kv260-camonly.xclbin"
-
-camonly = Path("/sys/kernel/config/device-tree/overlays/kv260-camonly")
-
-if camonly.is_dir():
-    camonly.rmdir()
-    print("Cleaned kv260-camonly overlay")
 
 overlay = Overlay(f"{OVERLAY_DIR}/kv260-camonly.bit",
                      dtbo=f"{OVERLAY_DIR}/kv260-camonly.dtbo", ignore_version=True)
