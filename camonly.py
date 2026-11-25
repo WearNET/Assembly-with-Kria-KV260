@@ -21,13 +21,12 @@ from pynq.devicetree import DeviceTreeSegment
 import errno
 import fcntl
 import glob
-import os
 import struct
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from PIL import Image
+from PIL import Image as PILImage
 
 import cv2
 import numpy as np
@@ -36,9 +35,10 @@ from IPython.display import Image, display
 OVERLAY_DIR = "/root/jupyter_notebooks/YOLO"
 
 dvt_dir = Path("/sys/kernel/config/device-tree/overlays")
+protected = {"pynq"}
 
 for overlay in dvt_dir.iterdir():
-    if overlay.is_dir() and overlay.name != "pynq":
+    if overlay.is_dir() and overlay.name not in protected:
         try:
             overlay.rmdir()
             print(f"Removed: {overlay.name}")
@@ -171,7 +171,7 @@ def capture_gst_launch(video, width, height, n_frames):
 # ---------------------------------------------------------------- run
 
 def import_image_bytes(path : str):
-    with Image.open(path) as photo:
+    with PILImage.open(path) as photo:
         gray = photo.convert("L")
         width, height = gray.size
         pixels = gray.tobytes()
