@@ -2,36 +2,31 @@
 #include "xgpio.h"
 #include <stdint.h>
 
+/* MicroBlaze data segment for axi_bram_ctrl_0 in the workshop XSA. */
 #define GPIO_DEVICE_ID XPAR_XGPIO_0_BASEADDR
+#define SHARED_BRAM_BASE 0xA0000000u
 #define CHANNEL1 1
 #define CHANNEL2 2
-#define IMAGE_WIDTH 1920
-#define IMAGE_HEIGHT 1080
-#define OUTPUT_WIDTH (IMAGE_WIDTH - 2)
-#define OUTPUT_HEIGHT (IMAGE_HEIGHT - 2)
-
 
 XGpio Gpio;
 
-static int pixels[] = {
-    #include "img_pixels.inc"
+_Static_assert(sizeof(int) == 4, "Tile protocol requires 32-bit int");
+static int kernel[] = {
+    -1,-1,-1,
+    -1, 8,-1,
+    -1,-1,-1
 };
 
-_Static_assert(sizeof pixels == IMAGE_WIDTH * IMAGE_HEIGHT, "Expected one grayscale byte per pixel");
+// Insert the supplied row-order function from notebook Part 3 HERE.
 
-static const int8_t edge_kernel[9] = {
-    -1, -1, -1,
-    -1,  8, -1,
-    -1, -1, -1
-};
 
-static int edges[(IMAGE_HEIGHT - 2) * (IMAGE_WIDTH - 2)];
 
-int main() {
-    int status;
+int main(void) {
+    uintptr_t base = SHARED_BRAM_BASE;
+    int *input = (int *)base;
+    int *output = (int *)(base + 0x1000);
 
-    status = XGpio_Initialize(&Gpio, GPIO_DEVICE_ID);
-    if (status != XST_SUCCESS){
+    if (XGpio_Initialize(&Gpio, GPIO_DEVICE_ID) != XST_SUCCESS){
         return XST_FAILURE;
     }
 
@@ -39,15 +34,20 @@ int main() {
     XGpio_SetDataDirection(&Gpio, CHANNEL2, 0x00000000); // output
 
     while (1) {
-        int start = XGpio_DiscreteRead(&Gpio, CHANNEL1);
-        if (start & 1) {
-            XGpio_DiscreteWrite(&Gpio, CHANNEL2, 0x0); // example
-
-            //ADD YOUR CODE HERE
-
-            XGpio_DiscreteWrite(&Gpio, CHANNEL2, 0x80000064); // DONE
+        while (!(XGpio_DiscreteRead(&Gpio, CHANNEL1) & 1u)){
+            //wait as long as not 1
         }
-    }
 
-    return 0;
+        XGpio_DiscreteWrite(&Gpio, CHANNEL2, 0x0);
+
+        __asm__ volatile ("fence iorw,iorw" ::: "memory");
+        
+        /* Insert the convolution call HERE
+        Use input, output, kernel, 32 and 32 as variables. */
+        
+
+        __asm__ volatile ("fence iorw,iorw" ::: "memory");
+        
+        XGpio_DiscreteWrite(&Gpio, CHANNEL2, 0x80000000u);
+    }
 }

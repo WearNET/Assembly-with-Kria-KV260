@@ -1,6 +1,8 @@
 from pynq import Overlay, MMIO
 import time
 from pathlib import Path
+from time import monotonic
+import numpy as np
 
 DEFAULT_BRAM = "axi_bram_ctrl_0"
 DEFAULT_GPIO = "axi_gpio_0"
@@ -13,6 +15,7 @@ GPIO1_DATA = 0x00
 GPIO1_TRI  = 0x04
 GPIO2_DATA = 0x08
 GPIO2_TRI  = 0x0C
+OUTPUT = 0x1000 // 4
 
 class MicroBlaze:
     def __init__(self, overlay: Overlay, bram : str, gpio : str) -> None:
@@ -100,3 +103,59 @@ def print_convolution(microblaze : MicroBlaze):
 
     time = microblaze.run_convolution()
     print("Elapsed time (seconds):", time)
+
+def wait_status(read_status, wanted, timeout):
+    deadline = monotonic() + timeout
+    while True:
+        status = read_status()
+        if status == wanted:
+            return
+        if monotonic() >= deadline:
+            raise TimeoutError(f"Expected GPIO DONE bit {wanted:#010x}, read {status:#010x}. "
+                               "Check the GPIO setup, reset and the loaded ELF.")
+
+
+def run_tiled(image, words, set_start, read_status, timeout=2.0):
+    """words is the PS BRAM MMIO uint32 array. Each call owns the interface exclusively."""
+    image = np.asarray(image)
+    if image.ndim != 2 or min(image.shape) < 3 or image.dtype.kind not in "iu":
+        raise ValueError("Expected a 2-D integer grayscale image at least 3 by 3")
+    if image.min() < 0 or image.max() > 255:
+        raise ValueError("Expected grayscale values in 0..255")
+    if words.dtype != np.uint32 or words.size < 2048:
+        raise ValueError("Map at least 8192 bytes of shared BRAM as uint32 words")
+    height, width = image.shape
+    edges = np.empty((height - 2, width - 2), dtype=np.int32)
+    input_tile = words[:1024].reshape(32, 32)
+    output_tile = words[OUTPUT:OUTPUT+900].view(np.int32).reshape(30, 30)
+    set_start(0)
+    wait_status(read_status, 0, timeout)
+    for y in range(0, height - 2, 30):
+        for x in range(0, width - 2, 30):
+            tile = image[y:y+32, x:x+32]
+            h, w = tile.shape
+            # Only outputs whose entire 3x3 window lies inside this input are copied.
+            input_tile[:h, :w] = tile
+            set_start(1)
+            try:
+                wait_status(read_status, 1, timeout)
+                oh, ow = h - 2, w - 2
+                edges[y:y+oh, x:x+ow] = output_tile[:oh, :ow]
+            finally:
+                set_start(0)
+            wait_status(read_status, 0, timeout)
+    return edges
+
+
+def run_tiled_convolution(microblaze: MicroBlaze, image, timeout=2.0):
+    """Return signed edges using the fixed-tile GPIO firmware."""
+    microblaze.setup()
+
+    def set_start(value):
+        # The tiled firmware expects START to stay high until DONE is observed.
+        microblaze.gpio.write(GPIO1_DATA, value)
+
+    def read_done_bit():
+        return (microblaze.read_done() >> 31) & 1
+
+    return run_tiled(image, microblaze.bram.array, set_start, read_done_bit, timeout)
