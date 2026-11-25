@@ -26,7 +26,6 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from PIL import Image as PILImage
 
 import cv2
 import numpy as np
@@ -34,21 +33,19 @@ from IPython.display import Image, display
 
 OVERLAY_DIR = "/root/jupyter_notebooks/YOLO"
 
-dvt_dir = Path("/sys/kernel/config/device-tree/overlays")
-protected = {"pynq"}
+def cleanup_device_trees():
+    dvt_dir = Path("/sys/kernel/config/device-tree/overlays")
+    protected = {"pynq"}
 
-for overlay in dvt_dir.iterdir():
-    if overlay.is_dir() and overlay.name not in protected:
-        try:
-            overlay.rmdir()
-            print(f"Removed: {overlay.name}")
-        except OSError as error:
-            print(f"Could not remove {overlay.name}: {error}")
+    for overlay in dvt_dir.iterdir():
+        if overlay.is_dir() and overlay.name not in protected:
+            try:
+                overlay.rmdir()
+                print(f"Removed: {overlay.name}")
+            except OSError as error:
+                print(f"Could not remove {overlay.name}: {error}")
 
 os.environ["XLNX_VART_FIRMWARE"] = f"{OVERLAY_DIR}/kv260-camonly.xclbin"
-
-overlay = Overlay(f"{OVERLAY_DIR}/kv260-camonly.bit",
-                     dtbo=f"{OVERLAY_DIR}/kv260-camonly.dtbo", ignore_version=True)
 
 WIDTH, HEIGHT = 1920, 1080
 CHECK_FRAMES = 1
@@ -170,16 +167,6 @@ def capture_gst_launch(video, width, height, n_frames):
 
 # ---------------------------------------------------------------- run
 
-def import_image_bytes(path : str):
-    with PILImage.open(path) as photo:
-        gray = photo.convert("L")
-        width, height = gray.size
-        pixels = gray.tobytes()
-
-    print(width, height, len(pixels))
-
-    return pixels
-
 def capture_image():
     video, _ = _find("video", lambda n: "vcap" in n)
     print(f"video={video}")
@@ -211,14 +198,5 @@ def capture_image():
         raise RuntimeError(f"Could not write {OUT_FILE}")
     print(f"saved {OUT_FILE}")
     display(Image(filename=OUT_FILE, width=640))
-
-    img_bytes = import_image_bytes(OUT_FILE)
-
-    with open("vitis/microblaze_software/img_pixels.inc", "w") as file:
-        for i in range(0, len(img_bytes), 16):
-            chunk = img_bytes[i:i + 16]
-            file.write(", ".join(f"0x{value:02X}" for value in chunk) + ",\n")
-
-    file.close()
 
     return OUT_FILE
