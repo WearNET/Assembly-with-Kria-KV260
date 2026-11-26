@@ -36,6 +36,8 @@ class MicroBlaze:
         self.gpio = MMIO(self.gpio_base, self.gpio_size)
         print("GPIO:", hex(self.gpio_base), hex(self.gpio_info["addr_range"]))
 
+    def free(self):
+        self.overlay.free()
 
     def setup(self):
         # ch1 output (START), ch2 output (DONE)
