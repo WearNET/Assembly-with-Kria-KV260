@@ -34,20 +34,24 @@ int main(void) {
     XGpio_SetDataDirection(&Gpio, CHANNEL2, 0x00000000); // output
 
     while (1) {
-        while (!(XGpio_DiscreteRead(&Gpio, CHANNEL1) & 1u)){
-            //wait as long as not 1
-        }
-
         XGpio_DiscreteWrite(&Gpio, CHANNEL2, 0x0);
+        
+        while (!(XGpio_DiscreteRead(&Gpio, CHANNEL1) & 1u)){
+            // Hold DONE until python raises START
+        }
 
         __asm__ volatile ("fence iorw,iorw" ::: "memory");
         
         /* Insert the convolution call HERE
         Use input, output, kernel, 32 and 32 as variables. */
-        
+
 
         __asm__ volatile ("fence iorw,iorw" ::: "memory");
         
         XGpio_DiscreteWrite(&Gpio, CHANNEL2, 0x80000000u);
+
+        while (XGpio_DiscreteRead(&Gpio, CHANNEL1) & 1u) {
+            // Hold DONE until Python finishes reading the tile and lowers START.
+        }       
     }
 }

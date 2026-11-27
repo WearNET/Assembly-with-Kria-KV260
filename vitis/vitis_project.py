@@ -30,9 +30,11 @@ try:
 
     comp = client.get_component(name="app_component")
     status = comp.import_files(from_loc=str(source_dir), 
-                                files=["microblaze.c",
-                                       "img_pixels.inc"],
+                                files=["microblaze.c"],
                                 is_skip_copy_sources = False)
+
+    comp.set_app_config(key = "USER_COMPILE_OPTIMIZATION_LEVEL", values = ["-O2"])
+
 except Exception as exc:
     raise SystemExit(
         f"\nComponent creations failed. Verify paths and that the items exists where they should be.\n"

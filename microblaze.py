@@ -1,8 +1,9 @@
 from pynq import Overlay, MMIO
 import time
 from pathlib import Path
-from time import monotonic
+from time import monotonic, perf_counter_ns
 import numpy as np
+from conv_bench import EDGE_KERNEL, conv_python, load_photo
 
 DEFAULT_BRAM = "axi_bram_ctrl_0"
 DEFAULT_GPIO = "axi_gpio_0"
@@ -28,16 +29,16 @@ class MicroBlaze:
         self.bram_base = self.bram_info["phys_addr"]
         self.bram_size = self.bram_info["addr_range"]
         self.bram = MMIO(self.bram_base, self.bram_size)
-        print("BRAM:", hex(self.bram_base), hex(self.bram_size))
+        print(f"BRAM: Address Base: {hex(self.bram_base)}, Size: {hex(self.bram_size)}")
 
         self.gpio_info = self.ol.ip_dict[gpio]
         self.gpio_base = self.gpio_info["phys_addr"]
         self.gpio_size = self.gpio_info["addr_range"]
         self.gpio = MMIO(self.gpio_base, self.gpio_size)
-        print("GPIO:", hex(self.gpio_base), hex(self.gpio_info["addr_range"]))
+        print(f"GPIO: Address Base: {hex(self.bram_base)}, Size: {hex(self.bram_size)}")
 
     def free(self):
-        self.overlay.free()
+        self.ol.free()
 
     def setup(self):
         # ch1 output (START), ch2 output (DONE)
@@ -46,7 +47,7 @@ class MicroBlaze:
         
         # clear BRAM words before start (optional)
         self.gpio.write(GPIO1_DATA, 0)
-        print("BRAM before:", hex(self.bram.read(0)), hex(self.bram.read(4)))    
+        print("BRAM cleared:", hex(self.bram.read(0)), hex(self.bram.read(4)))    
 
     def start_run(self):
         self.gpio.write(GPIO1_DATA, 1)
@@ -119,19 +120,26 @@ def wait_status(read_status, wanted, timeout):
 
 def run_tiled(image, words, set_start, read_status, timeout=2.0):
     """words is the PS BRAM MMIO uint32 array. Each call owns the interface exclusively."""
+
     image = np.asarray(image)
+
     if image.ndim != 2 or min(image.shape) < 3 or image.dtype.kind not in "iu":
         raise ValueError("Expected a 2-D integer grayscale image at least 3 by 3")
+
     if image.min() < 0 or image.max() > 255:
         raise ValueError("Expected grayscale values in 0..255")
+
     if words.dtype != np.uint32 or words.size < 2048:
         raise ValueError("Map at least 8192 bytes of shared BRAM as uint32 words")
+
     height, width = image.shape
     edges = np.empty((height - 2, width - 2), dtype=np.int32)
     input_tile = words[:1024].reshape(32, 32)
     output_tile = words[OUTPUT:OUTPUT+900].view(np.int32).reshape(30, 30)
+
     set_start(0)
     wait_status(read_status, 0, timeout)
+
     for y in range(0, height - 2, 30):
         for x in range(0, width - 2, 30):
             tile = image[y:y+32, x:x+32]
@@ -149,15 +157,59 @@ def run_tiled(image, words, set_start, read_status, timeout=2.0):
     return edges
 
 
-def run_tiled_convolution(microblaze: MicroBlaze, image, timeout=2.0):
-    """Return signed edges using the fixed-tile GPIO firmware."""
-    microblaze.setup()
+def measure_tiles(board, pixels):
+    durations_ns = []
+    start_ns = None
 
     def set_start(value):
-        # The tiled firmware expects START to stay high until DONE is observed.
-        microblaze.gpio.write(GPIO1_DATA, value)
+        nonlocal start_ns
+        if value == 1:
+            start_ns = perf_counter_ns()
+        board.gpio.write(GPIO1_DATA, value)
 
-    def read_done_bit():
-        return (microblaze.read_done() >> 31) & 1
+    def read_done():
+        nonlocal start_ns
+        done = (board.read_done() >> 31) & 1
 
-    return run_tiled(image, microblaze.bram.array, set_start, read_done_bit, timeout)
+        if done and start_ns is not None:
+            durations_ns.append(perf_counter_ns() - start_ns)
+            start_ns = None  # Record this tile only once.
+
+        return done
+
+    board.setup()
+    begin = perf_counter_ns()
+    edges = run_tiled(pixels, board.bram.array, set_start, read_done)
+    total_ns = perf_counter_ns() - begin
+
+    return edges, durations_ns, total_ns
+    
+def verify_microblaze(edges, photo_path, row=0, col=0, height=5, width=5):
+    actual = np.asarray(edges)
+    photo = load_photo(photo_path)
+    shape = (len(photo) - 2, len(photo[0]) - 2)
+
+    if actual.shape != shape:
+        raise AssertionError(f"Output shape: MicroBlaze {actual.shape}, expected {shape}")
+
+    expected = np.asarray(conv_python(photo, EDGE_KERNEL), dtype=np.int32)
+
+    print(f"MicroBlaze shape: {actual.shape} | Python shape: {expected.shape}")
+
+    region = np.s_[row:row + height, col:col + width]
+    print(f"\nMicroBlaze output at row {row}, column {col}:")
+    print(actual[region])
+
+    print(f"\nPython output at row {row}, column {col}:")
+    print(expected[region])
+
+    mismatch = actual != expected
+    count = np.count_nonzero(mismatch)
+    if count:
+        y, x = np.unravel_index(mismatch.argmax(), shape)
+        raise AssertionError(
+            f"{count:,} of {actual.size:,} pixels differ. First mismatch at "
+            f"(row={y}, col={x}): MicroBlaze={actual[y, x]}, Python={expected[y, x]}"
+        )
+    
+    print(f"\nPASS: all {actual.size:,} signed output pixels match Python ({shape[0]} x {shape[1]}).")
