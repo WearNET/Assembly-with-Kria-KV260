@@ -1,9 +1,12 @@
 from pynq import Overlay, MMIO
 import time
 from pathlib import Path
+from PIL import Image, ImageDraw
 from time import monotonic, perf_counter_ns
 import numpy as np
 from conv_bench import EDGE_KERNEL, conv_python, load_photo
+from pathlib import Path
+from IPython.display import display
 
 DEFAULT_BRAM = "axi_bram_ctrl_0"
 DEFAULT_GPIO = "axi_gpio_0"
@@ -184,17 +187,16 @@ def measure_tiles(board, pixels):
 
     return edges, durations_ns, total_ns
     
-def verify_microblaze(edges, photo_path, row=0, col=0, height=5, width=5):
-    actual = np.asarray(edges)
+def verify_microblaze(edges, photo_path, row=0, col=0, height=5, width=5, *, output_dir="."):
     photo = load_photo(photo_path)
-    shape = (len(photo) - 2, len(photo[0]) - 2)
-
-    if actual.shape != shape:
-        raise AssertionError(f"Output shape: MicroBlaze {actual.shape}, expected {shape}")
-
+    actual = np.asarray(edges)
     expected = np.asarray(conv_python(photo, EDGE_KERNEL), dtype=np.int32)
 
     print(f"MicroBlaze shape: {actual.shape} | Python shape: {expected.shape}")
+    if actual.shape != expected.shape:
+        raise AssertionError(
+            f"Output shapes differ: MicroBlaze {actual.shape}, Python {expected.shape}"
+        )
 
     region = np.s_[row:row + height, col:col + width]
     print(f"\nMicroBlaze output at row {row}, column {col}:")
@@ -205,11 +207,36 @@ def verify_microblaze(edges, photo_path, row=0, col=0, height=5, width=5):
 
     mismatch = actual != expected
     count = np.count_nonzero(mismatch)
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    preview = Image.new("L", (740, 230), color=255)
+    draw = ImageDraw.Draw(preview)
+
+    for x, label, filename, values in (
+        (5,   "MicroBlaze V", "edges_microblaze.pgm", actual),
+        (375, "Python",       "edges_python.pgm",     expected),
+    ):
+        magnitude = np.abs(values.astype(np.int64))
+        brightness = np.clip(magnitude, 0, 255).astype(np.uint8)
+        pgm = Image.fromarray(brightness)
+
+        path = output_dir / filename
+        pgm.save(path)
+        print(f"Saved {path}")
+
+        pgm.thumbnail((355, 200))
+        draw.text((x, 4), label, fill=0)
+        preview.paste(pgm, (x, 24))
+
+    display(preview)
+
     if count:
-        y, x = np.unravel_index(mismatch.argmax(), shape)
+        y, x = np.unravel_index(mismatch.argmax(), mismatch.shape)
         raise AssertionError(
             f"{count:,} of {actual.size:,} pixels differ. First mismatch at "
             f"(row={y}, col={x}): MicroBlaze={actual[y, x]}, Python={expected[y, x]}"
         )
     
-    print(f"\nPASS: all {actual.size:,} signed output pixels match Python ({shape[0]} x {shape[1]}).")
+    print(f"\nPASS: all {actual.size:,} signed output pixels match Python.")
