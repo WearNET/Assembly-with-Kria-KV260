@@ -29,6 +29,5 @@ module full_adder_stub(
     output cout
 );
     /* Your code here */
-    assign {cout,sum} = a + b + cin;
 
 endmodule
